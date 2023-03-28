@@ -187,10 +187,6 @@ def persist_lines(service, spreadsheet, lines, config):
                 spreadsheet = get_spreadsheet(service, spreadsheet['spreadsheetId']) # refresh this for future iterations
                 headers_by_stream[msg.stream] = list(flattened_record.keys())
                 append(headers_by_stream[msg.stream])
-            else:
-                if insert_option == INSERT_OPTION_REPLACE and sheet_title not in cleared_sheets:
-                    clear_sheet(service, spreadsheet['spreadsheetId'], range_name)
-                    cleared_sheets.append(sheet_title)
 
             elif msg.stream not in headers_by_stream:
                 first_row = get_values(service, spreadsheet['spreadsheetId'], range_name + '1')
@@ -199,6 +195,10 @@ def persist_lines(service, spreadsheet, lines, config):
                 else:
                     headers_by_stream[msg.stream] = list(flattened_record.keys())
                     append(headers_by_stream[msg.stream])
+
+            if insert_option == INSERT_OPTION_REPLACE and sheet_title not in cleared_sheets and not new_sheet_needed:
+                clear_sheet(service, spreadsheet['spreadsheetId'], range_name)
+                cleared_sheets.append(sheet_title)
 
             result = append([flattened_record.get(x, None) for x in headers_by_stream[msg.stream]]) # order by actual headers found in sheet
 
