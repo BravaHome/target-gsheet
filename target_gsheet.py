@@ -35,6 +35,13 @@ logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
 logger = singer.get_logger()
 
 SCOPES = 'https://www.googleapis.com/auth/spreadsheets'
+CLIENT_SECRET_FILE = 'client_secret.json'
+CREDENTIAL_FILE = 'sheets.googleapis.com-singer-target.json'
+APPLICATION_NAME = 'Singer Sheets Target'
+INSERT_OPTIONS = {
+    'insert': 'INSERT_ROWS',
+    'replace': 'OVERWRITE',
+}
 
 
 def get_credentials(config):
@@ -46,9 +53,9 @@ def get_credentials(config):
     Returns:
         Credentials, the obtained credential.
     """
-    client_secret = config.get('clientSecret', 'client_secret.json')
-    credential_path = config.get('creds', 'sheets.googleapis.com-singer-target.json')
-    application_name = config.get('applicationName', 'Singer Sheets Target')
+    client_secret = config.get('clientSecret', CLIENT_SECRET_FILE)
+    credential_path = config.get('creds', CREDENTIAL_FILE)
+    application_name = config.get('applicationName', APPLICATION_NAME)
 
     store = Storage(credential_path)
     credentials = store.get()
@@ -97,12 +104,14 @@ def add_sheet(service, spreadsheet_id, title):
         }).execute()
 
 
-def append_to_sheet(service, spreadsheet_id, range, values):
+def append_to_sheet(service, spreadsheet_id, range, values, insert_option=None):
+    insert_option = insert_option or 'insert'
     return service.spreadsheets().values().append(
         spreadsheetId=spreadsheet_id,
         range=range,
         valueInputOption='USER_ENTERED',
-        body={'values': [values]}).execute()
+        insertDataOption=INSERT_OPTIONS[insert_option],
+        body={'values': values}).execute()
 
 
 def clear_sheet(service, spreadsheet_id, range):
@@ -122,14 +131,33 @@ def flatten(d, parent_key='', sep='__'):
             items.append((new_key, str(v) if type(v) is list else v))
     return dict(items)
 
-def persist_lines(service, spreadsheet, lines, clear_sheets=False):
+
+def batch_lines(batch_size, batches, msg):
+    def inner(func):
+        @functools.wraps
+        def wrapper(line):
+            if msg.stream not in batches:
+                batches[msg.stream] = []
+            batches[msg.stream].append(line)
+            if len(batches[msg.stream]) >= batch_size:
+                func(batches[msg.stream])
+                batches[msg.stream] = []
+        return wrapper
+    return inner
+
+
+def persist_lines(service, spreadsheet, lines, config):
+    batch_size = config.get('batchSize', 1)
+    insert_option = config.get('insertOption')
+    sheet_title = config.get('sheetTitle')
+
     state = None
     schemas = {}
     key_properties = {}
 
     headers_by_stream = {}
 
-    cleared_sheets = []
+    batches = {}
 
     for line in lines:
         try:
@@ -146,17 +174,14 @@ def persist_lines(service, spreadsheet, lines, clear_sheets=False):
             validate(msg.record, schema)
             flattened_record = flatten(msg.record)
 
-            matching_sheet = [s for s in spreadsheet['sheets'] if s['properties']['title'] == msg.stream]
+            sheet_title = sheet_title or msg.stream
+            matching_sheet = [s for s in spreadsheet['sheets'] if s['properties']['title'] == sheet_title]
             new_sheet_needed = len(matching_sheet) == 0
             range_name = "{}!A1:ZZZ".format(msg.stream)
-            append = functools.partial(append_to_sheet, service, spreadsheet['spreadsheetId'], range_name)
-
-            if clear_sheets and msg.stream not in cleared_sheets:
-                clear_sheet(service, spreadsheet['spreadsheetId'], range_name)
-                cleared_sheets.append(msg.stream)
+            append = batch_lines(batch_size, batches, msg)(functools.partial(append_to_sheet, service, spreadsheet['spreadsheetId'], range_name, insert_option=insert_option))
 
             if new_sheet_needed:
-                add_sheet(service, spreadsheet['spreadsheetId'], msg.stream)
+                add_sheet(service, spreadsheet['spreadsheetId'], sheet_title)
                 spreadsheet = get_spreadsheet(service, spreadsheet['spreadsheetId']) # refresh this for future iterations
                 headers_by_stream[msg.stream] = list(flattened_record.keys())
                 append(headers_by_stream[msg.stream])
@@ -224,7 +249,7 @@ def main():
 
     input = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
     state = None
-    state = persist_lines(service, spreadsheet, input, clear_sheets=config.get('clear_data'))
+    state = persist_lines(service, spreadsheet, input, config)
     emit_state(state)
     logger.debug("Exiting normally")
 
