@@ -182,15 +182,15 @@ def persist_lines(service, spreadsheet, lines, config):
             range_name = "{}!A1:ZZZ".format(sheet_title)
             append = batch_lines(batch_size, batches, msg)(functools.partial(append_to_sheet, service, spreadsheet['spreadsheetId'], range_name, insert_option=insert_option))
 
-            if insert_option == INSERT_OPTION_REPLACE and sheet_title not in cleared_sheets:
-                clear_sheet(service, spreadsheet['spreadsheetId'], range_name)
-                cleared_sheets.append(sheet_title)
-
             if new_sheet_needed:
                 add_sheet(service, spreadsheet['spreadsheetId'], sheet_title)
                 spreadsheet = get_spreadsheet(service, spreadsheet['spreadsheetId']) # refresh this for future iterations
                 headers_by_stream[msg.stream] = list(flattened_record.keys())
                 append(headers_by_stream[msg.stream])
+            else:
+                if insert_option == INSERT_OPTION_REPLACE and sheet_title not in cleared_sheets:
+                    clear_sheet(service, spreadsheet['spreadsheetId'], range_name)
+                    cleared_sheets.append(sheet_title)
 
             elif msg.stream not in headers_by_stream:
                 first_row = get_values(service, spreadsheet['spreadsheetId'], range_name + '1')
