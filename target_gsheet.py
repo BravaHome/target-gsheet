@@ -138,8 +138,9 @@ def batch_lines(batch_size, batches, msg):
         def wrapper(line):
             if msg.stream not in batches:
                 batches[msg.stream] = []
-            batches[msg.stream].append(line)
-            if len(batches[msg.stream]) >= batch_size:
+            if line:
+                batches[msg.stream].append(line)
+            if line and len(batches[msg.stream]) >= batch_size or not line:
                 func(batches[msg.stream])
                 batches[msg.stream] = []
         return wrapper
@@ -205,6 +206,8 @@ def persist_lines(service, spreadsheet, lines, config):
             key_properties[msg.stream] = msg.key_properties
         else:
             raise Exception("Unrecognized message {}".format(msg))
+    # Load remaining in batch
+    append(None)
 
     return state
 
