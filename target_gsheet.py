@@ -38,10 +38,10 @@ SCOPES = 'https://www.googleapis.com/auth/spreadsheets'
 CLIENT_SECRET_FILE = 'client_secret.json'
 CREDENTIAL_FILE = 'sheets.googleapis.com-singer-target.json'
 APPLICATION_NAME = 'Singer Sheets Target'
-INSERT_OPTIONS = {
-    'insert': 'INSERT_ROWS',
-    'replace': 'OVERWRITE',
-}
+
+# Options
+INSERT_OPTION_APPEND = 'append'
+INSERT_OPTION_REPLACE = 'replace'
 
 
 def get_credentials(config):
@@ -110,7 +110,6 @@ def append_to_sheet(service, spreadsheet_id, range, values, insert_option=None):
         spreadsheetId=spreadsheet_id,
         range=range,
         valueInputOption='USER_ENTERED',
-        insertDataOption=INSERT_OPTIONS[insert_option],
         body={'values': values}).execute()
 
 
@@ -149,7 +148,7 @@ def batch_lines(batch_size, batches, msg):
 
 def persist_lines(service, spreadsheet, lines, config):
     batch_size = config.get('batchSize', 1)
-    insert_option = config.get('insertOption')
+    insert_option = config.get('insertOption', INSERT_OPTION_APPEND)
     sheet_title = config.get('sheetTitle')
 
     state = None
@@ -157,6 +156,8 @@ def persist_lines(service, spreadsheet, lines, config):
     key_properties = {}
 
     headers_by_stream = {}
+
+    cleared_sheets = []
 
     batches = {}
 
@@ -178,8 +179,12 @@ def persist_lines(service, spreadsheet, lines, config):
             sheet_title = sheet_title or msg.stream
             matching_sheet = [s for s in spreadsheet['sheets'] if s['properties']['title'] == sheet_title]
             new_sheet_needed = len(matching_sheet) == 0
-            range_name = "{}!A1:ZZZ".format(msg.stream)
+            range_name = "{}!A1:ZZZ".format(sheet_title)
             append = batch_lines(batch_size, batches, msg)(functools.partial(append_to_sheet, service, spreadsheet['spreadsheetId'], range_name, insert_option=insert_option))
+
+            if insert_option == INSERT_OPTION_REPLACE and sheet_title not in cleared_sheets:
+                clear_sheet(service, spreadsheet['spreadsheetId'], range_name)
+                cleared_sheets.append(sheet_title)
 
             if new_sheet_needed:
                 add_sheet(service, spreadsheet['spreadsheetId'], sheet_title)
