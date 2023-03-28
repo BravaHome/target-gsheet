@@ -139,7 +139,7 @@ def batch_lines(batch_size, batches, msg):
                 batches[msg.stream] = []
             if line:
                 batches[msg.stream].append(line)
-            if line and len(batches[msg.stream]) >= batch_size or not line:
+            if len(batches[msg.stream]) >= batch_size:
                 func(batches[msg.stream])
                 batches[msg.stream] = []
         return wrapper
@@ -162,6 +162,8 @@ def persist_lines(service, spreadsheet, lines, config):
 
     batches = {}
 
+    append_send = functools.partial(append_to_sheet, service, spreadsheet['spreadsheetId'], insert_option=insert_option)
+
     for line in lines:
         try:
             msg = singer.parse_message(line)
@@ -181,7 +183,7 @@ def persist_lines(service, spreadsheet, lines, config):
             matching_sheet = [s for s in spreadsheet['sheets'] if s['properties']['title'] == sheet_title]
             new_sheet_needed = len(matching_sheet) == 0
             range_name = "{}!A1:ZZZ".format(sheet_title)
-            append = batch_lines(batch_size, batches, msg)(functools.partial(append_to_sheet, service, spreadsheet['spreadsheetId'], range_name, insert_option=insert_option))
+            append = batch_lines(batch_size, batches, msg)(functools.partial(append_send, range_name))
 
             if new_sheet_needed:
                 add_sheet(service, spreadsheet['spreadsheetId'], sheet_title)
@@ -213,7 +215,11 @@ def persist_lines(service, spreadsheet, lines, config):
         else:
             raise Exception("Unrecognized message {}".format(msg))
     # Load remaining in batch
-    append(None)
+    for stream, batch in batches.items():
+        if batch:
+            sheet_title = sheet_titles.get(stream) or stream
+            range_name = "{}!A1:ZZZ".format(sheet_title)
+            append_send(range_name, batch)
 
     return state
 
