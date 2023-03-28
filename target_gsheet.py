@@ -149,7 +149,8 @@ def batch_lines(batch_size, batches, msg):
 def persist_lines(service, spreadsheet, lines, config):
     batch_size = config.get('batchSize', 1)
     insert_option = config.get('insertOption', INSERT_OPTION_APPEND)
-    sheet_title = config.get('sheetTitle')
+    sheet_titles = {title.get('stream'): title.get('title')
+                    for title in config.get('sheetTitles', []) if title.get('stream')}
 
     state = None
     schemas = {}
@@ -176,7 +177,7 @@ def persist_lines(service, spreadsheet, lines, config):
             validate(msg.record, schema)
             flattened_record = flatten(msg.record)
 
-            sheet_title = sheet_title or msg.stream
+            sheet_title = sheet_titles.get(msg.stream) or msg.stream
             matching_sheet = [s for s in spreadsheet['sheets'] if s['properties']['title'] == sheet_title]
             new_sheet_needed = len(matching_sheet) == 0
             range_name = "{}!A1:ZZZ".format(sheet_title)
