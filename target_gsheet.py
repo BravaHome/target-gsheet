@@ -134,7 +134,7 @@ def flatten(d, parent_key='', sep='__'):
 
 def batch_lines(batch_size, batches, msg):
     def inner(func):
-        @functools.wraps
+        @functools.wraps(func)
         def wrapper(line):
             if msg.stream not in batches:
                 batches[msg.stream] = []
